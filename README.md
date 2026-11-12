@@ -1,3 +1,5 @@
+> **实验分支**：`native-work/` 保存减重候选与调研材料，尚未通过生成验收。当前稳定版本请使用 [`main`](https://github.com/b1ghawk119/dsh-aurabot-qq-meme-plugin/tree/main)。本分支不会自动启用减重候选。
+
 # 表情制作 · AuraBot 模块
 
 在 QQ 中直接发 **#贴贴 @某人**、**#贴贴**、**#鲁迅说 今天也要开心**。

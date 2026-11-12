@@ -1,0 +1,1 @@
+{"methods": ["motion_blur", "distort", "color_mask"], "patches": [{"line": 326, "text": "        import cv2"}, {"line": 342, "text": "        import cv2"}, {"line": 356, "text": "        import cv2"}]}
