@@ -1,3 +1,4 @@
+import { preparePythonRuntime } from './prepare-python-runtime.mjs';
 import { extractResourceArchive, validResource } from './resource-archive.mjs';
 import { prepareSkiaData } from './python-data.mjs';
 import { readFile, writeFile, stat, mkdir, rm, rename, readdir, unlink } from 'node:fs/promises';
@@ -5,10 +6,10 @@ import { join, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-const run = promisify(execFile), curl = process.platform === 'win32' ? 'curl.exe' : 'curl';
+const run = promisify(execFile);
 const execute = (file, args, options={}) => new Promise((res,rej)=>{const p=spawn(file,args,{stdio:'inherit',windowsHide:true,...options});p.on('error',rej);p.on('exit',code=>code===0?res():rej(Error(`${file} 退出 ${code}`)));});
 const exists = p => stat(p).then(()=>true,()=>false);
-export async function preparePython(root) {
+export async function preparePython(root,{onProgress=()=>{}}={}) {
  const manifest=JSON.parse(await readFile(new URL('./python-pack.json',import.meta.url),'utf8'));
  const home=join(root,'node_modules','.meme-python'), source=join(home,'source'), toolDir=join(home,'tools');
  await mkdir(source,{recursive:true});await mkdir(toolDir,{recursive:true});
@@ -17,21 +18,19 @@ export async function preparePython(root) {
  const missing=[];
  for(const f of manifest.files)if(!await validResource(source,f))missing.push(f);
  if(missing.length) {
+  onProgress({message:'正在下载扩展素材…'});
   console.log(`下载扩展素材包，补齐 ${missing.length} 个文件`);
   const suffixes=['png','jpg','jpeg','gif','webp','bmp','ttf','otf','mp4'];
   const excludePatterns=manifest.excludedKeys.flatMap(key=>suffixes.map(ext=>`*/memes*/${key}/*.${ext}`));
-  await extractResourceArchive(source,{repository:manifest.repository,revision:manifest.revision,files:missing,excludePatterns});
+  await extractResourceArchive(source,{repository:manifest.repository,revision:manifest.revision,files:missing,excludePatterns,onBytes:received=>onProgress({message:'正在下载扩展素材…',received})});
  }
- const asset=manifest.uv[`${process.platform}-${process.arch}`];if(!asset)throw Error('此平台暂无 Python 扩展安装包');
- const uvDir=process.platform==='win32'?toolDir:join(toolDir,asset.name.replace(/\.tar\.gz$/,''));
- const uv=join(uvDir,process.platform==='win32'?'uv.exe':'uv');
- if(!await exists(uv)) {const archive=join(toolDir,asset.name);await run(curl,['-fLsS','--retry','2','--max-time','300','-o',archive,asset.browser_download_url],{windowsHide:true});await execute('tar',['-xf',archive,'-C',toolDir]);await rm(archive);}
- const env={...process.env,UV_PYTHON_INSTALL_DIR:join(home,'interpreter'),UV_CACHE_DIR:join(toolDir,'cache'),UV_NO_CACHE:'1',UV_PYTHON_INSTALL_BIN:'0'};
- await execute(uv,['python','install','3.12.12','--no-bin','--no-registry'],{env});
- const executable=(await run(uv,['python','find','--managed-python','3.12.12'],{env,windowsHide:true})).stdout.trim();
+ onProgress({message:'正在准备扩展组件…'});
+ const {uv,executable}=await preparePythonRuntime(home);
+ const env={...process.env,UV_CACHE_DIR:join(toolDir,'cache'),UV_NO_CACHE:'1',UV_PYTHON:executable,UV_PYTHON_DOWNLOADS:'never'};
  const requirements=join(home,'requirements.txt');
  await run(uv,['export','--frozen','--no-dev','--no-emit-project','--no-hashes','--format','requirements-txt','--output-file',requirements],{cwd:source,env,windowsHide:true});
  await execute(uv,['pip','install','--python',executable,'--target',join(home,'site-packages'),'--only-binary',':all:','--index-url','https://pypi.org/simple','-r',requirements],{env});
+ onProgress({message:'正在载入扩展模板…'});
  await prepareSkiaData(home, `${process.platform}-${process.arch}`);
  await writeFile(join(home,'excluded.json'),JSON.stringify(manifest.excludedKeys));
  const runtime={platform:`${process.platform}-${process.arch}`,revision:manifest.revision,executable:relative(home,executable),excluded:manifest.excludedKeys.length};
@@ -56,4 +55,4 @@ export async function preparePython(root) {
  for(const entry of await readdir(join(home,'interpreter'),{withFileTypes:true}))if(entry.isSymbolicLink())await unlink(join(home,'interpreter',entry.name));
  console.log(`Python 扩展就绪：新增 ${catalog.length} 个模板`);
 }
-if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url))await preparePython(resolve(process.argv[2]||fileURLToPath(new URL('..',import.meta.url))));
+if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url))await preparePython(resolve(process.argv[2]||fileURLToPath(new URL('..',import.meta.url))),{onProgress:state=>console.log('@@MEME_EXTENSION '+JSON.stringify(state))});

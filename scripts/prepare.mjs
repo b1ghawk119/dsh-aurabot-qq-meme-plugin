@@ -1,11 +1,9 @@
+import {downloadArtifact} from './download-artifact.mjs';
 // Shared by explicit installation and automatic first-run preparation.
-import { readFile, stat, mkdir, rename, writeFile, rm } from 'node:fs/promises';
+import { readFile, mkdir, rename, writeFile, rm } from 'node:fs/promises';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { extractResourceArchive, validResource } from './resource-archive.mjs';
-const run=promisify(execFile),curl=process.platform==='win32'?'curl.exe':'curl';
 export async function prepare(root,{onProgress=()=>{}}={}) {
   const inventory=JSON.parse(await readFile(new URL('./resources.json',import.meta.url),'utf8'));
   const {baseKeys,packs}=JSON.parse(await readFile(new URL('./packs.json',import.meta.url),'utf8'));
@@ -26,7 +24,7 @@ export async function prepare(root,{onProgress=()=>{}}={}) {
     if(missing.length) {
       onProgress({phase:'assets',message:`正在下载素材包（${i+1}/${groups.length}）…`,completed:0,total:0});
       console.log(`素材包 ${i+1}/${groups.length}：补齐 ${missing.length} 个文件`);
-      await extractResourceArchive(home,{...group,files:missing});
+      await extractResourceArchive(home,{...group,files:missing,onBytes:received=>onProgress({phase:'assets',message:`正在下载素材包（${i+1}/${groups.length}）…`,completed:0,total:0,received})});
     }
   }
   onProgress({phase:'components',message:'正在准备模板组件…',completed:0,total:binaries.length});
@@ -35,8 +33,7 @@ export async function prepare(root,{onProgress=()=>{}}={}) {
     if(!await validResource(home,f)) {
       const dest=join(home,f.path),temp=dest+'.part';await mkdir(dirname(dest),{recursive:true});
       try {
-        await run(curl,['-fLsS','--retry','2','--connect-timeout','20','--max-time','300','-o',temp,f.url],{windowsHide:true});
-        if((await stat(temp)).size!==f.size)throw Error('模板组件下载不完整');
+        await downloadArtifact(f,temp);
         await rename(temp,dest);
       } finally {await rm(temp,{force:true});}
     }

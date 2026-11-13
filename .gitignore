@@ -10,3 +10,5 @@ __pycache__/
 *.pyc
 
 !test/fixtures/*.tar.gz
+
+.build/
