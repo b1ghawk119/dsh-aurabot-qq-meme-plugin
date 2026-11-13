@@ -9,7 +9,7 @@
 - Windows 公共测试 46 项通过；macOS/Linux 仅路径与平台适配，未执行运行测试。Linux wheel 使用私有解释器解 ZIP，不依赖 GNU tar 支持 ZIP。
 - 本机具备 VC++ 运行库。Windows 原生引擎依赖 MSVCP140/VCRUNTIME140，未验证缺少这些系统组件的全新 Windows；自动流程不修改系统运行库。
 
-完整结果保存在本地 `artifacts/market-e2e.json`、`artifacts/market-check.json`。官方上架还需公开 PR 与维护者审核，私有 Git 提交不代表已发布市场。
+完整结果保存在本地 `artifacts/market-e2e.json`、`artifacts/market-check.json`。稳定源码通过公开 PR 申请上架；官方目录发布仍以维护者审核合并为准。
 
 # 1.3.0：自动首次准备
 
