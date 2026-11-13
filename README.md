@@ -45,7 +45,7 @@
 
 开发者也可保留原来的命令行安装方式：`node scripts/install.mjs [目标目录]`。加 `--with-extension` 可同时预装扩展；安装器不会覆盖已有模块。
 
-平台：Windows x64 优先；macOS Intel/Apple Silicon、Linux glibc x64/arm64 已做平台与路径适配，未运行平台验收。使用宿主现有 Node 和系统自带 curl/tar，不额外安装包管理器。Windows 原生引擎需系统具备 VC++ 运行库（当前机器已能运行）。
+平台：Windows x64 已实测；Linux glibc x64 容器和 arm64 仿真容器已验证；macOS Intel/Apple Silicon 已做平台与路径适配，未运行验收。Docker 需补齐系统库并正确处理面板访问，见 [Docker 使用说明与测试结果](docs/DOCKER.md)。使用宿主现有 Node 和系统自带 curl/tar，不额外安装包管理器。Windows 原生引擎需系统具备 VC++ 运行库（当前机器已能运行）。
 
 ### 模块市场
 
