@@ -1,3 +1,4 @@
+import { seedRuntimeMetadata } from './helpers/runtime.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, mkdir, writeFile, readFile, stat } from 'node:fs/promises';
@@ -16,6 +17,7 @@ test('未知异常默认隐藏；只有显式用户错误可以显示', () => {
 });
 test('聊天制作、预览、管理、初始化和面板错误不外泄，诊断留在日志', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'meme-errors-'));
+  await seedRuntimeMetadata(dir);
   const original = Engine.prototype.call;
   const item = {key:'test',keywords:['测试'],tags:[],shortcuts:[],params:{minImages:0,maxImages:0,minTexts:0,maxTexts:1,defaultTexts:[],options:[]}};
   let failLoad=false, handle;

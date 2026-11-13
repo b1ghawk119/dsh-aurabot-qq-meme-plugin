@@ -1,3 +1,4 @@
+import { extractResourceArchive, validResource } from './resource-archive.mjs';
 import { prepareSkiaData } from './python-data.mjs';
 import { readFile, writeFile, stat, mkdir, rm, rename, readdir, unlink } from 'node:fs/promises';
 import { join, dirname, relative, resolve } from 'node:path';
@@ -13,25 +14,14 @@ export async function preparePython(root) {
  await mkdir(source,{recursive:true});await mkdir(toolDir,{recursive:true});
  const marker=join(home,'ready.json');
  if(await exists(marker)) {const ready=JSON.parse(await readFile(marker,'utf8'));if(ready.revision===manifest.revision && ready.platform===`${process.platform}-${process.arch}` && await exists(join(home,ready.executable)) && await exists(join(home,'catalog.json'))) {await prepareSkiaData(home, ready.platform);console.log('Python 扩展已准备');return;}}
- const files=manifest.files;
- let missing=0;for(const f of files)if(await stat(join(source,f.path)).then(s=>s.size!==f.size,()=>true))missing++;
- if(missing>100) {
-  const list=join(home,'archive-files.txt'), exclusions=join(home,'archive-excludes.txt'), prefix=`meme-generator-${manifest.revision}/`;
-  await writeFile(list,['meme_generator','resources/fonts','LICENSE','README.md','pyproject.toml','uv.lock'].map(p=>prefix+p).join('\n')+'\n');
+ const missing=[];
+ for(const f of manifest.files)if(!await validResource(source,f))missing.push(f);
+ if(missing.length) {
+  console.log(`下载扩展素材包，补齐 ${missing.length} 个文件`);
   const suffixes=['png','jpg','jpeg','gif','webp','bmp','ttf','otf','mp4'];
-  await writeFile(exclusions,manifest.excludedKeys.flatMap(key=>suffixes.map(ext=>`*/memes*/${key}/*.${ext}`)).join('\n')+'\n');
-  console.log(`下载 Python 库，仅解包新增模板资源（${files.length} 个文件）`);
-  const download=spawn(curl,['-fLsS','--connect-timeout','20','--max-time','1200',`https://codeload.github.com/${manifest.repository}/tar.gz/${manifest.revision}`],{windowsHide:true,stdio:['ignore','pipe','inherit']});
-  const extract=spawn('tar',['-xz', ...(process.platform==='win32'?['--options','hdrcharset=UTF-8']:[]), '--strip-components=1','-C',source,'-X',exclusions,'-T',list],{windowsHide:true,stdio:['pipe','ignore','inherit']});
-  const wait=p=>new Promise((res,rej)=>{p.on('error',rej);p.on('close',c=>c===0?res():rej(Error(`资源流退出 ${c}`)));});
-  const pending=[wait(download),wait(extract)];extract.stdin.on('error',()=>download.kill());download.stdout.pipe(extract.stdin);
-  try{await Promise.all(pending);}catch(e){console.warn(e.message+'，按清单补齐缺失项');}finally{download.kill();extract.kill();}
-  await rm(list,{force:true});await rm(exclusions,{force:true});
+  const excludePatterns=manifest.excludedKeys.flatMap(key=>suffixes.map(ext=>`*/memes*/${key}/*.${ext}`));
+  await extractResourceArchive(source,{repository:manifest.repository,revision:manifest.revision,files:missing,excludePatterns});
  }
- const incomplete=[];for(const f of files)if(await stat(join(source,f.path)).then(s=>s.size!==f.size,()=>true))incomplete.push(f);
- console.log(`补齐 ${incomplete.length} 个资源文件`);
- let next=0;
- await Promise.all(Array.from({length:8},async()=>{while(next<incomplete.length){const f=incomplete[next++],dest=join(source,f.path);await mkdir(dirname(dest),{recursive:true});await run(curl,['-fLsS','--retry','2','--retry-all-errors','--connect-timeout','15','--max-time','120','-o',dest+'.part',`https://raw.githubusercontent.com/${manifest.repository}/${manifest.revision}/${f.path.split("/").map(encodeURIComponent).join("/")}`],{windowsHide:true});if((await stat(dest+'.part')).size!==f.size)throw Error('资源不完整：'+f.path);await rename(dest+'.part',dest);}}));
  const asset=manifest.uv[`${process.platform}-${process.arch}`];if(!asset)throw Error('此平台暂无 Python 扩展安装包');
  const uvDir=process.platform==='win32'?toolDir:join(toolDir,asset.name.replace(/\.tar\.gz$/,''));
  const uv=join(uvDir,process.platform==='win32'?'uv.exe':'uv');
@@ -46,7 +36,7 @@ export async function preparePython(root) {
  await writeFile(join(home,'excluded.json'),JSON.stringify(manifest.excludedKeys));
  const runtime={platform:`${process.platform}-${process.arch}`,revision:manifest.revision,executable:relative(home,executable),excluded:manifest.excludedKeys.length};
  await writeFile(join(home,'runtime.json'),JSON.stringify(runtime));
- await execute(executable,['-u',fileURLToPath(new URL('../lib/python-worker.py',import.meta.url)),'--catalog'],{env:{...env,MEME_PYTHON_HOME:home,MEME_MODULE_DIR:root,PYTHONUTF8:'1',PYTHONDONTWRITEBYTECODE:'1'}});
+ await execute(executable,['-u',fileURLToPath(new URL('../lib/python-worker.py',import.meta.url)),'--catalog'],{env:{...env,MEME_PYTHON_HOME:home,MEME_MODULE_DIR:root,MEME_HOME:join(root,'node_modules','.meme-runtime'),PYTHONUTF8:'1',PYTHONDONTWRITEBYTECODE:'1'}});
  const catalog=JSON.parse(await readFile(join(home,'catalog.json'),'utf8'));
  runtime.count=catalog.length;
  // The upstream loader has already resolved same-ID entries. Keep one set of assets.

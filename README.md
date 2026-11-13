@@ -29,19 +29,26 @@
 
 首次安装需要联网，安装后离线生成。旧版本已启用的扩展在升级后继续启用。
 
-## 安装
+## 安装后自动准备
 
-**离线包**：把准备好的整个 `meme` 目录放入 `~/.dsh/plugins-data/aurabot/modules/`，包括隐藏的 `node_modules/.meme-runtime`；含扩展的包还需保留 `node_modules/.meme-python`。几秒后自动加载，不用重启 DSH。不要只复制 `index.mjs`。
+把模块完整目录放到 `~/.dsh/plugins-data/aurabot/modules/meme/`，打开“表情库”即可。**无需运行安装命令、npm install，也不用配置 API Key 或 Python。**
 
-**从源码安装基础库**（首次自动下载资源，完成后离线）：
+首次启动会自动识别系统，下载运行组件和基础素材。面板显示当前阶段与进度；完成后直接发送 `#摸摸`、`#黄仁勋说 你好` 使用。网络失败时点击 **重试准备**，不用重新配置。默认只准备 732 个基础模板，不下载 Python 扩展。
 
-```sh
-node scripts/install.mjs
-```
+- 每个素材库下载一个固定版本的归档，流式解压；不逐文件请求 GitHub，不使用 GitHub API 补图，也不要求安装 Git。不保留压缩包副本或 `.git` 历史。
+- 完整素材库直接复用；库不完整时按整包重新获取，只提取需要的源码/素材目录。运行组件按已提交的 npm 完整性值校验后安装。
+- 新的轻量安装把组件与素材放在模块数据目录的 `runtime/` 下，更新模块代码时可以复用。原有完整安装继续使用原路径，不搬动或重装已可用的库。
+- 首次准备需要联网和足够的磁盘空间，基础资源约 943 MiB；完成后离线生成。可选扩展另由面板安装按钮管理。
 
-也可指定目录：`node scripts/install.mjs "目标路径/modules/meme"`。使用 DSH 已有的 Node 运行时即可。安装器使用系统自带 curl/tar，不需要 npm。基础库不安装 Python；需要预装扩展时加 `--with-extension`，例如 `node scripts/install.mjs --with-extension`。扩展的 Python 3.12.12 和依赖只准备在模块目录，不改系统 Python、PATH 或注册表；下载中断后可重试。准备期间目录以 `_` 开头，不会被 AuraBot 加载。现有模块不会被覆盖。
+**完整离线包**：复制已准备好的整个 `meme` 目录（包含隐藏的 `node_modules`），会直接加载，不重复下载。
 
-平台：Windows x64 优先；macOS Intel/Apple Silicon、Linux glibc x64/arm64 按平台选择原生包。macOS/Linux 尚未验收。Windows 原生引擎需系统具备 VC++ 运行库（当前机器已能运行）；仅在引擎无法加载的机器上安装微软 VC++ 2015–2022 x64 运行库。
+开发者也可保留原来的命令行安装方式：`node scripts/install.mjs [目标目录]`。加 `--with-extension` 可同时预装扩展；安装器不会覆盖已有模块。
+
+平台：Windows x64 优先；macOS Intel/Apple Silicon、Linux glibc x64/arm64 已做平台与路径适配，未运行平台验收。使用宿主现有 Node 和系统自带 curl/tar，不额外安装包管理器。Windows 原生引擎需系统具备 VC++ 运行库（当前机器已能运行）。
+
+### 模块市场
+
+自动首次准备流程已经实现，但尚未上架官方市场。其对运行时下载可执行依赖、发布包体积及素材许可的审核仍需通过；把源码提交到私有仓库不等于市场已发布。
 
 ## 指令
 
@@ -76,15 +83,15 @@ node scripts/install.mjs
 
 ### 离线与隐私
 
-模板资源、字体、合成均在本机；不会上传输入到第三方表情 API。QQ 消息投递、首次获取 QQ 头像/远程图片仍需 QQ 网络，头像短期缓存于内存。已经提供图片字节或纯文字时，引擎不需要联网。基础库安装访问 GitHub 和 npm，首次安装扩展还需访问 PyPI。普通生成请求不下载代码、素材或字体。
+模板资源、字体、合成均在本机；不会上传输入到第三方表情 API。QQ 消息投递、首次获取 QQ 头像/远程图片仍需 QQ 网络，头像短期缓存于内存。已经提供图片字节或纯文字时，引擎不需要联网。首次自动准备访问 GitHub、codeload.github.com 和 npm；安装可选扩展还需访问 PyPI。普通生成请求不下载代码、素材或字体。
 
 ### 性能与维护
 
 独立子进程执行渲染，不阻塞 DSH；新增模板需要的运行进程仅在首次使用时启动，无 HTTP 服务或端口；串行生成、最多 6 个任务、45 秒超时后回收重建。每人默认冷却 3 秒；输入每图 8 MiB、1600 万像素、300 帧上限；输出 20 MiB 上限。目录图按需生成并在内存中复用，禁用列表或列数变化后重新生成。不预生成全部预览、不持久缓存成品。安装/卸载扩展后目录缓存自动更新，不运行自动在线更新任务。
 
-基础资源与可选扩展分别放在 `node_modules/.meme-runtime`、`node_modules/.meme-python`，不进入 AuraBot 热重载快照。配置由 AuraBot 保存；统计在 `modules-data/meme/statistics.json`。禁用模块会终止其生成进程树，不影响其它模块。扩展准备仅由面板安装操作或安装脚本发起，不由聊天触发。异常诊断只记入本机日志，聊天和面板只显示适合用户的提示。
+自动准备的依赖放在 `modules-data/meme/runtime/node_modules/`，其中基础资源、可选扩展分别位于 `.meme-runtime`、`.meme-python`。原有完整安装仍使用模块目录里的 `node_modules`；这些资源不进入热重载快照。配置由 AuraBot 保存；统计在 `modules-data/meme/statistics.json`。禁用模块会终止其生成进程树，不影响其它模块。基础准备仅由模块启动/重试发起，扩展准备仅由面板安装操作或安装脚本发起，不由聊天触发下载。异常诊断只记入本机日志，聊天和面板只显示适合用户的提示。
 
-用 `node scripts/pack.mjs /path/to/meme /path/to/meme-offline.tar.gz` 打包基础库；加 `--with-extension` 才会包含可选扩展资源与运行环境。原生依赖按操作系统分发；跨平台源码安装器自动选择对应包。
+用 `node scripts/pack.mjs /path/to/meme /path/to/meme-offline.tar.gz` 打包基础库；加 `--with-extension` 才会包含可选扩展资源与运行环境。打包器会自动寻找相邻的持久资源目录，也可用 `--runtime-dir 目录` 指定；不复制第二套大素材库。原生依赖按操作系统分发。
 
 ## 开发与来源
 

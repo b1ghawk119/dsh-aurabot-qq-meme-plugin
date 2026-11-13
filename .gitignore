@@ -8,3 +8,5 @@ artifacts/
 .env.*
 __pycache__/
 *.pyc
+
+!test/fixtures/*.tar.gz

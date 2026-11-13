@@ -41,7 +41,7 @@ import skia
 import importlib
 typography = importlib.import_module('pil_utils.text2image')
 provider = skia.textlayout.TypefaceFontProvider()
-font_dirs = [Path(os.environ['MEME_MODULE_DIR']) / 'node_modules/.meme-runtime/resources/fonts', source / 'resources/fonts']
+font_dirs = [Path(os.environ.get('MEME_HOME', str(Path(os.environ['MEME_MODULE_DIR']) / 'node_modules/.meme-runtime'))) / 'resources/fonts', source / 'resources/fonts']
 for folder in font_dirs:
     for font in sorted(folder.glob('*')):
         if font.suffix.lower() in ('.ttf', '.otf', '.ttc'):

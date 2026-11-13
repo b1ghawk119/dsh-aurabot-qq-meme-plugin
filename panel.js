@@ -21,6 +21,34 @@ return function MemePanel({ settings, save, toast }) {
     timer = setTimeout(poll, 400);
     return () => { stopped = true; clearTimeout(timer); };
   }, [data?.extension?.busy]);
+  useEffect(() => {
+    if (!data?.installation?.busy) return;
+    let stopped = false, timer;
+    const poll = async () => {
+      try {
+        const next = await call('/installation');
+        if (stopped) return;
+        if (next.installation.busy) {
+          setData(old=>({...old,installation:next.installation}));
+          timer=setTimeout(poll,1000);
+        } else {
+          const library=await call('/library');
+          if (!stopped) setData(library);
+        }
+      } catch {if(!stopped)timer=setTimeout(poll,2000);}
+    };
+    timer=setTimeout(poll,300);
+    return ()=>{stopped=true;clearTimeout(timer);};
+  },[data?.installation?.busy]);
+  const retryInstallation = async () => {
+    setChanging(true);
+    try {
+      const result=await call('/installation',{});
+      if(result.ok===false)throw new Error(result.message);
+      if(result.installation.busy)setData(old=>({...old,installation:result.installation}));
+      else setData(await call('/library'));
+    } catch(e){toast(e.message);} finally{setChanging(false);}
+  };
   const extension = data?.extension;
   const changeExtension = async () => {
     setChanging(true);
@@ -45,7 +73,12 @@ return function MemePanel({ settings, save, toast }) {
   };
   return h('div', null,
     h(ui.Card, { title: '表情库' },
-      h('p', { className: 'ab-note' }, data ? (data.error ? '表情库暂时不可用，请查看模块日志' : `${data.total} 个模板`) : '正在加载…'),
+      h('p', { className: 'ab-note', 'aria-live': 'polite' }, data ? (data.installation?.busy ? data.installation.message : data.error ? '表情库暂时不可用' : `${data.total} 个模板`) : '正在加载…'),
+      data?.installation?.busy && h('div', { style:{marginBottom:16} },
+        h('progress', { 'aria-label':'表情库准备进度', style:{width:'100%',height:12}, ...(data.installation.total>0 ? {value:data.installation.completed,max:data.installation.total} : {}) }),
+        h('p', {className:'ab-muted ab-small'},data.installation.total>0 ? `${data.installation.completed} / ${data.installation.total}` : '首次准备需要一些时间，完成后即可使用。')),
+      data?.installation?.error && h('div', {style:{display:'flex',alignItems:'center',gap:12,marginBottom:16}},
+        h('span',null,data.installation.error),h(ui.Btn,{disabled:changing,onClick:retryInstallation},'重试准备')),
       h('p', null, '聊天中发送“#表情列表”查看全部表情，发送“#表情详情 摸摸”查看用法。'),
       h('div', { style: { display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', marginBottom: 16 } },
         h('label', { style: { display: 'flex', gap: 10, alignItems: 'center' } }, '目录列数',
@@ -54,14 +87,14 @@ return function MemePanel({ settings, save, toast }) {
         extension && h('div', null,
           h('div', { style: { display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' } },
             h('span', null, extension.installed ? `扩展库 · ${extension.count} 个模板` : '扩展库 · 未安装'),
-            h(ui.Btn, { disabled: changing || busy || extension.busy, onClick: changeExtension },
+            h(ui.Btn, { disabled: changing || busy || extension.busy || !data?.ready, onClick: changeExtension },
               extension.busy ? '正在处理…' : extension.installed ? '卸载扩展库' : '安装扩展库')),
           h('div', { className: 'ab-muted ab-small', style: { marginTop: 5 } },
             extension.error || (extension.installed ? '卸载只停用，保留资源。' : extension.cached ? '资源已保留，可直接安装。' : '首次安装需下载资源。')))),
-      h('div', { style: { display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 } },
+      data?.ready && h('div', { style: { display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 } },
         h('input', { className: 'ab-input', placeholder: '搜索模板、触发词或标签', 'aria-label': '搜索模板', value: query, onChange: e => { setQuery(e.target.value); setPage(1); }, style: { flex: '1 1 240px' } }),
         h(ui.Btn, { onClick: () => { setFavoritesOnly(!favoritesOnly); setPage(1); } }, favoritesOnly ? '显示全部' : '只看收藏')),
-      h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(210px,1fr))', gap: 12 } },
+      data?.ready && h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(210px,1fr))', gap: 12 } },
         ...filtered.slice((page - 1) * 24, page * 24).map(m => h('div', { key: m.key, style: { border: '1px solid var(--ab-border, #ddd)', borderRadius: 10, padding: 12 } },
           h('strong', null, m.keywords[0]),
           h('div', { className: 'ab-muted ab-small', style: { margin: '6px 0', overflowWrap: 'anywhere' } }, m.keywords.join(' · ')),
@@ -70,7 +103,7 @@ return function MemePanel({ settings, save, toast }) {
             h(ui.Btn, { disabled: busy || disabled.includes(m.key), onClick: () => show(m) }, '预览 / 用法'),
             h(ui.Btn, { onClick: () => toggle('disabled', m.key) }, disabled.includes(m.key) ? '启用' : '禁用'),
             h(ui.Btn, { onClick: () => toggle('favorites', m.key) }, favorites.includes(m.key) ? '★' : '☆'))))),
-      h('div', { style: { display: 'flex', gap: 12, alignItems: 'center', marginTop: 16 } },
+      data?.ready && h('div', { style: { display: 'flex', gap: 12, alignItems: 'center', marginTop: 16 } },
         h(ui.Btn, { disabled: page <= 1, onClick: () => setPage(page - 1) }, '上一页'),
         h('span', null, `${filtered.length} 个 · ${page}/${pages}`),
         h(ui.Btn, { disabled: page >= pages, onClick: () => setPage(page + 1) }, '下一页'))),

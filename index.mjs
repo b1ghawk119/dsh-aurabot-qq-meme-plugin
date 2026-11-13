@@ -1,3 +1,5 @@
+import { BootstrapManager } from './lib/bootstrap.mjs';
+import { chooseRuntimeDir, hasBaseRuntime } from './scripts/runtime-state.mjs';
 import { ExtensionManager, cachedExtension } from './lib/extension.mjs';
 import { UserError, publicErrorMessage } from './lib/errors.mjs';
 import { Engine } from './lib/engine.mjs';
@@ -17,7 +19,7 @@ const HELP = `表情制作
 主人：#表情禁用 模板 / #表情启用 模板
 #表情别名 新词=模板 · #表情开 / #表情关`;
 export default {
-  id: 'meme', name: '表情制作', version: '1.2.1', api: 1,
+  id: 'meme', name: '表情制作', version: '1.3.0', api: 1,
   description: '用头像、图片或文字制作表情，支持预览和自定义触发词',
   panel: 'panel.js',
   defaults: { enabled: true, direct: false, groups: '', private: true, cooldown: 3, indexColumns: 5, avatar: true, disabled: [], favorites: [], aliases: {} },
@@ -30,7 +32,8 @@ export default {
     { key: 'cooldown', label: '每人制作间隔（秒）', type: 'number', min: 0, max: 60 },
   ],
   async setup(api) {
-    const engine = new Engine(api.dir, { extensionEnabled: false });
+    const runtimeDir = chooseRuntimeDir(api.dir, api.dataDir('runtime'));
+    const engine = new Engine(api.dir, { extensionEnabled: false, runtimeDir });
     const statsFile = api.dataDir('statistics.json');
     let stats = {}, items = [], index = new Map(), aliasKey = '', error = '', version = '', disposed = false;
     let saveTimer, inFlight = 0;
@@ -45,16 +48,20 @@ export default {
     const enabled = item => !(settings().disabled || []).includes(item.key);
     const available = () => items.filter(enabled);
     function saveStats() { clearTimeout(saveTimer); try { writeFileSync(statsFile + '.tmp', JSON.stringify(stats)); renameSync(statsFile + '.tmp', statsFile); } catch (e) { api.log.warn('统计保存失败', e.message); } }
-    const status = () => ({ ready: !!items.length && !error, error: error ? '模板库暂时不可用，请联系主人' : '', engineVersion: version, total: items.length, enabled: available().length, active: !!engine.active, queued: engine.queue.length });
+    const status = () => ({ ready: !!items.length && !error, error: error ? '模板库暂时不可用，请联系主人' : bootstrap.status().error, engineVersion: version, total: items.length, enabled: available().length, active: !!engine.active, queued: engine.queue.length });
     function acceptCatalog(result) {
       items = result.items; version = result.version; aliasKey = ''; refreshIndex(); error = '';
     }
-    const extension = new ExtensionManager({dir:api.dir,engine,onCatalog:acceptCatalog,save:patch=>api.saveSettings(patch),log:api.log});
+    const extension = new ExtensionManager({dir:api.dir,runtimeDir,engine,onCatalog:acceptCatalog,save:patch=>api.saveSettings(patch),log:api.log});
     async function load() {
-      try { const result = await engine.call('catalog'); acceptCatalog(result); api.log.info(`离线引擎就绪：${items.length} 个模板`); }
-      catch (e) { error = e.message; api.log.error(error); }
+      const result = await engine.call('catalog'); acceptCatalog(result); api.log.info(`离线引擎就绪：${items.length} 个模板`);
     }
-    function ensureReady() { if (error || !items.length) throw new UserError(error ? '模板库暂时不可用，请联系主人' : '模板库正在加载，请稍后'); }
+    let wanted = false;
+    const bootstrap = new BootstrapManager({dir:api.dir,runtimeDir,log:api.log,onReady:async()=>{await load();if(wanted)await extension.restore();}});
+    function ensureReady() {
+      if (bootstrap.status().busy) throw new UserError('表情库正在准备，请稍后再试');
+      if (error || bootstrap.status().error || !items.length) throw new UserError('模板库暂时不可用，请联系主人');
+    }
     function reportFailure(e) {
       if (!(e instanceof UserError)) api.log.warn('表情模块操作失败', e.stack || e.message || String(e));
       return publicErrorMessage(e);
@@ -127,7 +134,7 @@ export default {
             await sendImage(msg, await engine.call('index-image', { disabled: settings().disabled || [], columns: settings().indexColumns || 5 }));
           }
           else if (action === '列表' || action === '搜索') await api.reply(msg, list(arg));
-          else if (action === '状态') { const s = status(); await api.reply(msg, `表情制作${settings().enabled ? "已开启" : "已关闭"} · ${s.total} 个模板（启用 ${s.enabled}）\n${s.error ? "暂时不可用，请联系主人检查模块日志" : `排队 ${s.queued}，${s.active ? '制作中' : '空闲'}`}`); }
+          else if (action === '状态') { const s = status(); await api.reply(msg, `表情制作${settings().enabled ? "已开启" : "已关闭"} · ${s.total} 个模板（启用 ${s.enabled}）\n${bootstrap.status().busy ? '表情库正在准备，请稍后再试' : s.error ? "暂时不可用，请联系主人检查模块日志" : `排队 ${s.queued}，${s.active ? '制作中' : '空闲'}`}`); }
           else if (action === '排行') await api.reply(msg, Object.entries(stats).filter(([key]) => items.some(m => m.key === key)).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([key, n]) => `${items.find(m => m.key === key)?.keywords[0] || key}：${n}`).join('\n') || '还没有制作记录');
           else { const found = find(arg); if (!found) throw new UserError('未找到模板，请使用“#表情搜索 关键词”'); if (action === '详情') await api.reply(msg, describe(found.item, Object.keys(settings().aliases || {}).filter(a => settings().aliases[a] === found.item.key))); else { if (!settings().enabled) throw new UserError('表情制作已关闭'); await generate(msg, found, true); } }
         } catch (e) { await api.reply(msg, reportFailure(e)); }
@@ -142,7 +149,7 @@ export default {
         const choices = available();
         if (choices.length) matched = { item: choices[Math.floor(Math.random() * choices.length)], rest: '' };
       } else matched = matchTemplate(text, index);
-      if (!matched) { if (prefix) { await api.reply(msg, '未找到模板，发送“#表情列表”或“#表情搜索 关键词”'); return true; } return false; }
+      if (!matched) { if (prefix && !items.length) { await api.reply(msg, bootstrap.status().busy ? '表情库正在准备，请稍后再试' : '模板库暂时不可用，请联系主人'); return true; } if (prefix) { await api.reply(msg, '未找到模板，发送“#表情列表”或“#表情搜索 关键词”'); return true; } return false; }
       // Zero-text raw triggers with unrelated trailing prose are ordinary conversation.
       if (!prefix && !sharp && matched.item.params.maxTexts === 0 && matched.rest && !/^(--|#)/.test(matched.rest)) return false;
       try { await generate(msg, matched); } catch (e) { await api.reply(msg, `表情制作失败：${reportFailure(e)}`); }
@@ -155,7 +162,15 @@ export default {
       const address = req.socket?.remoteAddress;
       if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(address)) throw new UserError('模板管理只允许本机访问');
     }
-    api.route('/library', async req => { local(req); refreshIndex(); return { ...status(), items, stats, extension: extension.status() }; });
+    api.route('/library', async req => { local(req); refreshIndex(); return { ...status(), items, stats, extension: extension.status(), installation: bootstrap.status() }; });
+    api.route('/installation', async req => {
+      local(req);
+      if (req.method === 'GET') return {ok:true, ready:status().ready, installation:bootstrap.status()};
+      try {
+        if (req.method !== 'POST') throw new UserError('请使用 POST');
+        return {ok:true, installation:status().ready ? bootstrap.status() : bootstrap.start()};
+      } catch(e) { return {ok:false, message:reportFailure(e)}; }
+    });
     api.route('/extension', async req => {
       local(req);
       try {
@@ -163,6 +178,7 @@ export default {
         if (req.method !== 'POST') throw new UserError('请使用 POST');
         const body = await api.core.http.body(req);
         if (!['install', 'uninstall'].includes(body.action)) throw new UserError('请选择安装或卸载扩展库');
+        ensureReady();
         return {ok:true, extension:extension.start(body.action === 'install')};
       } catch(e) { return {ok:false, message:reportFailure(e)}; }
     });
@@ -173,15 +189,17 @@ export default {
       try { return await engine.call('preview', { key: found.item.key }); }
       catch (e) { throw new UserError(reportFailure(e)); }
     });
-    api.onDispose(() => { disposed = true; extension.dispose(); clearTimeout(saveTimer); engine.dispose(); saveStats(); avatarCache.clear(); });
-    await load();
+    api.onDispose(() => { disposed = true; bootstrap.dispose(); extension.dispose(); clearTimeout(saveTimer); engine.dispose(); saveStats(); avatarCache.clear(); });
     // One-time migration: preserve an existing installation; fresh base installs stay light.
-    let wanted = settings().extensionEnabled;
+    wanted = settings().extensionEnabled;
     if (typeof wanted !== 'boolean') {
-      wanted = cachedExtension(api.dir);
+      wanted = cachedExtension(runtimeDir);
       api.saveSettings({extensionEnabled:wanted});
     }
-    if (wanted) await extension.restore();
-    return { status, catalog: () => items, handle, dispose: () => { if (!disposed) { extension.dispose(); engine.dispose(); } } };
+    if (hasBaseRuntime(runtimeDir)) {
+      try {await load();if(wanted)await extension.restore();bootstrap.markReady();}
+      catch(e) {error=e.message;api.log.error(e.stack || String(e));bootstrap.markFailed();}
+    } else bootstrap.start();
+    return { status, catalog: () => items, handle, dispose: () => { if (!disposed) { bootstrap.dispose(); extension.dispose(); engine.dispose(); } } };
   },
 };
