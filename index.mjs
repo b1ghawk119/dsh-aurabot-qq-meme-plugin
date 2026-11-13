@@ -1,3 +1,4 @@
+import { checkEnvironment } from './lib/environment.mjs';
 import { BootstrapManager } from './lib/bootstrap.mjs';
 import { chooseRuntimeDir, hasBaseRuntime } from './scripts/runtime-state.mjs';
 import { ExtensionManager, cachedExtension } from './lib/extension.mjs';
@@ -54,6 +55,7 @@ export default {
     }
     const extension = new ExtensionManager({dir:api.dir,runtimeDir,engine,onCatalog:acceptCatalog,save:patch=>api.saveSettings(patch),log:api.log});
     async function load() {
+      await checkEnvironment();
       const result = await engine.call('catalog'); acceptCatalog(result); api.log.info(`离线引擎就绪：${items.length} 个模板`);
     }
     let wanted = false;
@@ -203,7 +205,7 @@ export default {
     }
     if (hasBaseRuntime(runtimeDir)) {
       try {await load();if(wanted)await extension.restore();bootstrap.markReady();}
-      catch(e) {error=e.message;api.log.error(e.stack || String(e));bootstrap.markFailed();}
+      catch(e) {error=e.message;api.log.error(e.stack || String(e));bootstrap.markFailed(e);}
     } else bootstrap.start();
     return { status, catalog: () => items, handle, dispose };
   },
